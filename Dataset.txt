@@ -1,2 +1,2 @@
 Embeddings -> https://conceptnet.s3.amazonaws.com/downloads/2017/numberbatch/numberbatch-en-17.06.txt.gz
-Reviews -> https://www.kaggle.com/snap/amazon-fine-food-reviews
+Reviews -> https://www.kaggle.com/snap/amazon-fine-food-reviews/downloads/Reviews.csv
