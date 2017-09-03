@@ -19,7 +19,7 @@ from tensorflow.python.layers.core import Dense
 
 
 def read_reviews():
-    reviews = pd.read_csv("../Datasets/Reviews/Reviews.csv")
+    reviews = pd.read_csv("./Datasets/Reviews/Reviews.csv")
     reviews = reviews.dropna()
     reviews = reviews.drop(["Id","ProductId","UserId","ProfileName","HelpfulnessNumerator","HelpfulnessDenominator","Score","Time"]
                  ,axis=1)
@@ -248,7 +248,7 @@ print(len(vocab),len(vocab_to_int),len(int_to_vocab))
 # Using pre-trained Conceptnet Numberbatch's Embeddings (https://github.com/commonsense/conceptnet-numberbatch)
 def get_word_embeddings():
     embeddings = {}
-    with open('../Datasets/embeddings/numberbatch-en-17.06.txt',encoding='utf-8') as em:
+    with open('./Datasets/embeddings/numberbatch-en-17.06.txt',encoding='utf-8') as em:
         for embed in em:
             em_line = embed.split(' ')
             if len(em_line) > 2: # First line of file is no. of words , number of dimensions
@@ -388,21 +388,15 @@ def process_decoder_input(target_data,vocab_to_int,batch_size):
     return decoder_input
 
 
-# In[27]:
-
-
-# Create LSTM cells
-def get_lstm(rnn_size,keep_prob=0.7):
-    lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)
-    drop = tf.contrib.rnn.DropoutWrapper(lstm,input_keep_prob=keep_prob)
-    return drop
-
-
-# In[80]:
+# In[124]:
 
 
 def encoding_layer(embeded_rnn_input,rnn_size,keep_prob,num_layers,batch_size,source_sequence_length):
 
+    def get_lstm(rnn_size,keep_prob=0.7):
+        lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)
+        drop = tf.contrib.rnn.DropoutWrapper(lstm,input_keep_prob=keep_prob)
+        return drop
     #     forward lstm layer
     cell_fw = tf.contrib.rnn.MultiRNNCell([get_lstm(rnn_size,keep_prob) for _ in range(num_layers)])
 
@@ -428,28 +422,32 @@ def encoding_layer(embeded_rnn_input,rnn_size,keep_prob,num_layers,batch_size,so
             encoder_state = tf.concat(values=(encoder_fw_state[i], encoder_bw_state[i]), axis=1, name='bidirectional_concat')
         
         encoder_states.append(encoder_state)
-        
+    
+    encoder_states = tuple(encoder_states)
+    
     return encoder_outputs,encoder_states
 
 
-# In[67]:
+# In[157]:
 
 
 def training_decoder(dec_embed_input,decoder_cell,encoder_state, output_layer,
                      target_sequence_length,max_target_length):
+    
     
     helper = tf.contrib.seq2seq.TrainingHelper(dec_embed_input,target_sequence_length)
     
     decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell,helper,initial_state=encoder_state,
                                               output_layer=output_layer)
     
-    final_outputs, final_state,_ = tf.contrib.seq2seq.dynamic_decode(decoder=decoder,impute_finished=True,
+    
+    (final_outputs, final_state, final_sequence_lengths) = tf.contrib.seq2seq.dynamic_decode(decoder=decoder,impute_finished=True,
                                                      maximum_iterations=max_target_length)
     
     return final_outputs
 
 
-# In[68]:
+# In[152]:
 
 
 def inference_decoder(embeddings,decoder_cell,encoder_state,output_layer,vocab_to_int,
@@ -465,17 +463,22 @@ def inference_decoder(embeddings,decoder_cell,encoder_state,output_layer,vocab_t
     decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell,helper,initial_state=encoder_state,
                                               output_layer=output_layer)
     
-    final_output, final_state,_ = tf.contrib.seq2seq.dynamic_decode(decoder,impute_finished=True,
-                                                     maximum_iterations=max_target_length)
-    return final_output
+    (final_outputs, final_state, final_sequence_lengths) = tf.contrib.seq2seq.dynamic_decode(decoder,impute_finished=True,
+                                                  maximum_iterations=max_target_length)
+    return final_outputs
 
 
-# In[69]:
+# In[156]:
 
 
 def decoding_layer(target_inputs,encoder_state,embedding,vocab_to_int,rnn_size,target_sequence_length,max_target_length,
                    batch_size,num_layers):
     
+    def get_lstm(rnn_size,keep_prob=0.7):
+        rnn_size = 2 * rnn_size
+        lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)
+        drop = tf.contrib.rnn.DropoutWrapper(lstm,input_keep_prob=keep_prob)
+        return drop
     vocab_len = len(vocab_to_int)
     decoder_cell = tf.contrib.rnn.MultiRNNCell([get_lstm(rnn_size) for _ in range(num_layers)])
     output_layer = Dense(vocab_len,kernel_initializer=tf.truncated_normal_initializer(stddev=0.1))
@@ -491,13 +494,13 @@ def decoding_layer(target_inputs,encoder_state,embedding,vocab_to_int,rnn_size,t
         
     with tf.variable_scope("decoding",reuse=True):
         
-        inference_logits = inference_decoder(embeddings,decoder_cell,encoder_state,output_layer,vocab_to_int,
+        inference_logits = inference_decoder(embedding,decoder_cell,encoder_state,output_layer,vocab_to_int,
                                           max_target_length,batch_size)
     
     return training_logits, inference_logits
 
 
-# In[70]:
+# In[154]:
 
 
 def seq2seq_model(source_input,target_input,embeding_matrix,vocab_to_int,source_sequence_length,
@@ -545,10 +548,10 @@ def sort_text_summary(texts,summaries):
 sorted_text, sorted_summary = sort_text_summary(encoded_sources,encoded_targets)
 
 
-# In[59]:
+# In[165]:
 
 
-sorted_summary[:5]
+len(sorted_text)
 
 
 # In[60]:
@@ -595,19 +598,24 @@ def get_batches(encoded_sources, encoded_targets, batch_size):
         
 
 
-# In[62]:
+# In[211]:
 
 
 # Hyperparametrs
-epochs = 100
-batch_size = 64
+epochs = 10
+batch_size = 512
 rnn_size = 256
 num_layers = 2
-learning_rate = 0.01
+learn_rate = 0.01
 keep_probability = 0.75
 
+#Model save path
+save_path = 'models/model'
 
-# In[81]:
+display_step = 5
+
+
+# In[203]:
 
 
 # Build Graph
@@ -629,13 +637,111 @@ with train_graph.as_default():
     masks = tf.sequence_mask(target_seq_length, max_target_seq_length, dtype=tf.float32, name='masks')
 
     with tf.name_scope("optimization"):
-        cost = tf.contrib.seq2seq.sequence_loss(inference_logits,target,masks)
+        cost = tf.contrib.seq2seq.sequence_loss(training_logits,target,masks)
         optimizer=tf.train.AdamOptimizer(learning_rate)
         
         # Gradient Clipping
         gradients = optimizer.compute_gradients(cost)
         capped_gradients = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gradients if grad is not None]
         train_op = optimizer.apply_gradients(capped_gradients)
+
+
+# ### Training
+
+# In[204]:
+
+
+# Accuracy
+def get_accuracy(target, logits):
+    """
+    Calculate accuracy
+    """
+    max_seq = max(target.shape[1], logits.shape[1])
+    if max_seq - target.shape[1]:
+        target = np.pad(
+            target,
+            [(0,0),(0,max_seq - target.shape[1])],
+            'constant')
+    if max_seq - logits.shape[1]:
+        logits = np.pad(
+            logits,
+            [(0,0),(0,max_seq - logits.shape[1])],
+            'constant')
+
+    return np.mean(np.equal(target, logits))
+
+
+# In[205]:
+
+
+# Split data to training and validation sets (1 Batch for Validation and rest for Training)
+train_source = sorted_text[batch_size:]
+train_target = sorted_summary[batch_size:]
+valid_source = sorted_text[:batch_size]
+valid_target = sorted_summary[:batch_size]
+
+
+# In[206]:
+
+
+(valid_text_batch,valid_summary_batch,valid_source_seq_len,valid_target_seq_len) = next(get_batches(valid_source,valid_target,batch_size))
+
+
+# In[208]:
+
+
+print(len(source_seq_len),len(target_seq_len))
+
+
+# In[210]:
+
+
+with tf.Session(graph=train_graph) as sess:
+    sess.run(tf.global_variables_initializer())
+    
+    for epoch_i in range(epochs):
+        for batch_i,(text_batch,summary_batch,source_seq_len,target_seq_len) in enumerate(
+            get_batches(train_source,train_target,batch_size)):
+            
+           
+            _, loss = sess.run([train_op,cost],
+                              feed_dict={
+                                  input_ : text_batch,
+                                  target : summary_batch,
+                                  learning_rate:learn_rate,
+                                  keep_prob : keep_probability,
+                                  source_seq_length : source_seq_len,
+                                  target_seq_length : target_seq_len
+                              })
+            
+            if batch_i % display_step == 0 and batch_i > 0:
+                
+                batch_train_logits = sess.run(inference_logits,
+                                             feed_dict={
+                                                 input_: text_batch,
+                                                 source_seq_length: source_seq_len,
+                                                 target_seq_length: target_seq_len,
+                                                 keep_prob: 1.0
+                                             })
+                
+                batch_valid_logits = sess.run(inference_logits,
+                                             feed_dict={
+                                                 input_: valid_text_batch,
+                                                 source_seq_length: valid_source_seq_len,
+                                                 target_seq_length: valid_target_seq_len,
+                                                 keep_prob: 1.0
+                                             })
+                
+                train_accuracy = get_accuracy(summary_batch,batch_train_logits)
+                valid_accuracy = get_accuracy(valid_summary_batch,batch_valid_logits)
+                
+                print('Epoch {:>3} Batch {:>4}/{} - Train Accuracy: {:>6.4f}, Validation Accuracy: {:>6.4f}, Loss: {:>6.4f}'
+                      .format(epoch_i, batch_i, len(sorted_text) // batch_size, train_accuracy, valid_accuracy, loss))
+                
+    # Save Model
+    saver = tf.train.Saver()
+    saver.save(sess, save_path)
+    print('Model Trained and Saved')
 
 
 # In[ ]:
